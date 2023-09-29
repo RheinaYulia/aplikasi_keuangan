@@ -1,111 +1,203 @@
-import 'dart:developer';
-
-import 'package:aplikasi_keuangan/controller/logincontroller.dart';
-import 'package:aplikasi_keuangan/main.dart';
-import 'package:aplikasi_keuangan/pages/home.dart';
-import 'package:flutter/foundation.dart';
-import 'package:fluttertoast/fluttertoast.dart';
-import 'package:get/get.dart';
-import 'package:sqflite/sqflite.dart' as sql;
-import 'dart:io';
-import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:async';
 import 'package:sqflite/sqflite.dart';
+import 'dart:async';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:aplikasi_keuangan/model/usermodel.dart';
+import 'package:aplikasi_keuangan/model/finance.dart';
+import 'package:aplikasi_keuangan/konstan/konstan_keuangan.dart';
 
-import '../model/usermodel.dart';
+class DbHelper {
+  static DbHelper? _dbHelper;
+  static Database? _database;
+  DbHelper._createObject();
 
-class DatabaseHelper {
-  static final DatabaseHelper _instance = DatabaseHelper.internal();
-  factory DatabaseHelper() => _instance;
+  Future<Database> initDb() async {
+    //untuk menentukan nama database dan lokasi yg dibuat
+    Directory directory = await getApplicationDocumentsDirectory();
+    String path = '${directory.path}finplan.db';
 
-  static Database? _db;
-  final String tableUser = "User";
-  final String columnName = "name";
-  final String columnUserName = "username";
-  final String columnPassword = "password";
+    //create, read databases
+    var itemDatabase = openDatabase(path, version: 1, onCreate: _createDb);
 
-  Future<Database> get db async {
-    if (_db != null) {
-      return _db!;
-    }
-    _db = await initDb();
-    return _db!;
+    return itemDatabase;
   }
 
-  DatabaseHelper.internal();
+  void _createDb(Database db, int version) async {
+    await db.execute('''
+    CREATE TABLE user (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    password TEXT
+  )''');
 
-  initDb() async {
-    Directory documentDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentDirectory.path, "main.db");
-    var ourDb = await openDatabase(path, version: 1, onCreate: _onCreate);
-    return ourDb;
+    await db.execute('''
+    CREATE TABLE finance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    amount TEXT,
+    description TEXT,
+    type TEXT
+  )''');
+
+    // insert to table user
+    await db
+        .insert("user", {'username': 'riska@mail.co', 'password': 'password'});
   }
 
-  void _onCreate(Database db, int version) async {
-    await db.execute(
-        "CREATE TABLE User(id INTEGER PRIMARY KEY, name TEXT, username TEXT, password TEXT, flaglogged TEXT)");
-    print("Table is created");
+  //* User
+  //create databases user
+  Future<int> insertUser(User object) async {
+    Database db = await this.database;
+    int count = await db.insert('user', object.toMap());
+    return count;
   }
 
-  //insertion
-  Future<int> saveUser(var user) async {
-    var dbClient = await db;
-    print(user.name);
-    int res = await dbClient.insert("User", user.toMap());
-    List<Map> list = await dbClient.rawQuery('SELECT * FROM User');
-    print(list);
-    return res;
-  }
+  // create login user return true or false
+  Future<bool> loginUser(String username, String password) async {
+    Database db = await this.database;
 
-  //deletion
-  Future<int> deleteUser(User user) async {
-    var dbClient = await db;
-    int res = await dbClient.delete("User");
-    return res;
-  }
-
-  Future<dynamic> selectUser(user) async {
-    print("Select User");
-    print(user.username);
-    print(user.password);
-    var dbClient = await db;
-    List<Map> maps = await dbClient.query(tableUser,
-        columns: [columnUserName, columnPassword],
-        where: "$columnUserName = ? and $columnPassword = ?",
-        whereArgs: [user.username, user.password],
-        limit: 1);
-    print(maps);
-    if (maps.isNotEmpty) {
-      log(maps.toString());
-
-      Fluttertoast.showToast(msg: "User Exist").then((value) async {
-        Get.find<LoginController>().userdetails = await getuser(user.username);
-        Get.offAll(() => Home());
-      });
-      return user;
+    List<Map<String, dynamic>> result = await db.query('user',
+        where: 'username = ? AND password = ?', whereArgs: [username, password]);
+    if (result.isNotEmpty) {
+      return true;
     } else {
-      Fluttertoast.showToast(msg: "User Not Exist");
-      log("User Not Exist");
+      return false;
+    }
+  }
+
+  // create change password
+  Future<int> changePassword(String username, String password) async {
+    Database db = await this.database;
+
+    int result = await db.rawUpdate(
+        'UPDATE user SET password = ? WHERE username = ?', [password, username]);
+    return result;
+  }
+
+  // get user login data
+  Future<List<User>> getUserLogin(String username) async {
+    Database db = await this.database;
+    List<Map<String, dynamic>> result =
+        await db.query('user', where: 'username = ?', whereArgs: [username]);
+
+    List<User> users = [];
+    for (var i = 0; i < result.length; i++) {
+      users.add(User.fromMap(result[i]));
+    }
+    return users;
+  }
+
+  // Add this method to DbHelper
+  Future<User?> getUserByusername(String username) async {
+    Database db = await this.database;
+    List<Map<String, dynamic>> result =
+        await db.query('user', where: 'username = ?', whereArgs: [username]);
+
+    if (result.isNotEmpty) {
+      return User.fromMap(result[0]);
+    } else {
       return null;
     }
   }
 
-  Future getusers() async {
-    var dbClient = await db;
-    var res = await dbClient.query('User', orderBy: "id");
-    // var raw = await dbClient
-    //     .rawUpdate("Update User set flaglogged = true where id = 1");
-    // final db = await db;
-    // log(raw.toString());
-    log(res.toString());
+  //* Finance
+  //create databases finance
+  Future<int> insertFinance(Finance object) async {
+    Database db = await this.database;
+    int count = await db.insert('finance', object.toMap());
+    return count;
   }
 
-  Future getuser(var username) async {
-    var dbClient = await db;
-    var res = await dbClient.query('User', where: "username='$username'");
-    // final db = await db;
-    print(res.toString());
-    return res;
+  Future<int> insertIncome(
+      String date, String amount, String description) async {
+    Database db = await this.database;
+
+    // Create a Finance object with the income data
+    Finance incomeData = Finance(date, amount, description, incomeType);
+    print(incomeData.toMap());
+    int count = await db.insert('finance', incomeData.toMap());
+    return count;
+  }
+
+  Future<int> insertExpense(
+      String date, String amount, String description) async {
+    Database db = await this.database;
+
+    // Create a Finance object with the expense data
+    Finance expenseData = Finance(date, amount, description, expenseType);
+
+    int count = await db.insert('finance', expenseData.toMap());
+    return count;
+  }
+
+// get total from income
+  Future<int> getTotalIncome() async {
+    Database db = await this.database;
+    List<Map<String, dynamic>> result = await db.rawQuery(
+        'SELECT SUM(amount) as total FROM finance where type = "income"');
+
+    if (result.isNotEmpty && result[0]['total'] != null) {
+      int total = result[0]['total'];
+      return total;
+    } else {
+      // Handle the case where there is no data or 'total' is null
+      return 0; // You can return a default value or an appropriate error value
+    }
+  }
+
+  // get total from expense
+  Future<int> getTotalExpense() async {
+    Database db = await this.database;
+    List<Map<String, dynamic>> result = await db.rawQuery(
+      'SELECT SUM(amount) as total FROM finance where type = "expense"',
+    );
+
+    if (result.isNotEmpty && result[0]['total'] != null) {
+      int total = result[0]['total'];
+      return total;
+    } else {
+      // Handle the case where there is no data or 'total' is null
+      return 0; // You can return a default value or an appropriate error value
+    }
+  }
+
+  // get data from finance
+  Future<List<Finance>> getFinance() async {
+    Database db = await this.database;
+    List<Map<String, dynamic>> result = await db.query('finance');
+
+    List<Finance> finance = [];
+    for (var i = 0; i < result.length; i++) {
+      finance.add(Finance.fromMap(result[i]));
+    }
+    return finance;
+  }
+
+  // create data finance
+  Future<int> insertDataFinance(Finance object) async {
+    Database db = await this.database;
+    int count = await db.insert('finance', object.toMap());
+    return count;
+  }
+
+  // delete data finance
+  Future<int> deleteDataFinance(int id) async {
+    Database db = await this.database;
+    int count = await db.delete('finance', where: 'id=?', whereArgs: [id]);
+    return count;
+  }
+
+  factory DbHelper() {
+    if (_dbHelper == null) {
+      _dbHelper = DbHelper._createObject();
+    }
+    return _dbHelper!;
+  }
+
+  Future<Database> get database async {
+    if (_database == null) {
+      _database = await initDb();
+    }
+    return _database!;
   }
 }
